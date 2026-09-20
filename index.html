@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Controle de Processos — Branqueamento Pinus</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --graphite: #14181d;
+    --panel: #212831;
+    --panel-2: #2a323d;
+    --line: #3c4653;
+    --steel: #7c8b9c;
+    --paper: #f1efe8;
+    --paper-dim: #a7b0bc;
+    --amber: #f5a623;
+    --amber-dim: #8a621a;
+    --up: #5fb98b;
+    --down: #d9714e;
+    --stop: #c94f4f;
+    --radius: 6px;
+
+    /* identidade visual de cada processo — usada na barra superior do card
+       e na etiqueta "Processo". Mude aqui se quiser trocar as cores. */
+    --proc-lavagem: #6fa3d8;
+    --proc-depuracao: #4fbfae;
+    --proc-branqueamento: var(--amber);
+    /* verde-pinus — identidade do card "Linha de pinus" (resumo diário) */
+    --pine: #5ba374;
+    --pine-dim: rgba(91,163,116,0.1);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: var(--graphite);
+    background-image: radial-gradient(1400px 700px at 15% -10%, rgba(245,166,35,0.05), transparent);
+    color: var(--paper);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 15px;
+    min-height:100vh;
+    padding-bottom: 60px;
+  }
+  .mono{font-family:'JetBrains Mono', monospace;}
+  #printArea{ display:none; }
+
+  /* ---------- HEADER ---------- */
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    flex-wrap:wrap;
+    gap:20px;
+    padding: 26px 40px 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand-eyebrow{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11.5px;
+    letter-spacing:.2em;
+    text-transform:uppercase;
+    color: var(--amber);
+    margin:0 0 7px;
+  }
+  h1{
+    margin:0;
+    font-family:'Inter', sans-serif;
+    font-weight:800;
+    font-size: clamp(24px, 2.4vw, 33px);
+    letter-spacing:-0.02em;
+  }
+  .shift-panel{
+    background: var(--panel);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px 20px;
+    display:flex;
+    align-items:center;
+    gap:18px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  .shift-clock{
+    font-family:'JetBrains Mono', monospace;
+    font-size:28px;
+    font-weight:700;
+    color: var(--amber);
+    letter-spacing: .04em;
+    text-shadow: 0 0 14px rgba(245,166,35,0.35);
+    min-width: 98px;
+  }
+  .shift-meta{ font-family:'JetBrains Mono', monospace; font-size:12px; color: var(--paper-dim); line-height:1.5;}
+  .shift-meta b{ color: var(--paper); font-weight:600;}
+  .shift-bars{ display:flex; gap:3px; }
+  .shift-bars span{ width:4px; height:16px; background: var(--line); border-radius:1px;}
+  .shift-bars span.on{ background: var(--amber); box-shadow: 0 0 6px rgba(245,166,35,.6);}
+
+  /* ---------- LAYOUT ---------- */
+  main{ max-width: 1820px; margin: 0 auto; padding: 28px 40px 10px; }
+  .grid{
+    display:grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap:24px;
+  }
+  @media (max-width: 1180px){
+    .grid{ grid-template-columns: 1fr; }
+  }
+
+  /* cada card de processo recebe --accent via classe proc-<chave>, gerada
+     no JS a partir de PROCESS_DEFS. Isso pinta a barra do topo e a etiqueta
+     "Processo" com a cor de identidade daquele processo (ver --proc-* no
+     :root), facilitando reconhecer o card de relance. */
+  .card{
+    --accent: var(--steel);
+    background: var(--panel);
+    border:1px solid var(--line);
+    border-top: 3px solid var(--accent);
+    border-radius: var(--radius);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    box-shadow: 0 12px 28px -18px rgba(0,0,0,0.55);
+  }
+  .card.proc-lavagem{ --accent: var(--proc-lavagem); }
+  .card.proc-depuracao{ --accent: var(--proc-depuracao); }
+  .card.proc-branqueamento{ --accent: var(--proc-branqueamento); }
+  .card-head{
+    padding:18px 22px 14px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+  }
+  .card-tag{
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color: var(--accent);
+    display:block;
+    margin-bottom:4px;
+  }
+  .card-title{ font-size:19px; font-weight:700; margin:0; }
+  .status-pill{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    padding:5px 10px;
+    border-radius:20px;
+    border:1px solid var(--line);
+    color: var(--up);
+    white-space:nowrap;
+  }
+  .status-pill.stopped{ color: var(--stop); border-color: rgba(201,79,79,.4); background: rgba(201,79,79,.08);}
+
+  .card-body{ padding:20px 22px; }
+
+  .prod-readout{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+    margin-bottom:16px;
+  }
+  .prod-readout .num{ font-family:'JetBrains Mono', monospace; font-size:44px; font-weight:700; color: var(--paper);}
+  .prod-readout .unit{ font-family:'JetBrains Mono', monospace; font-size:14px; color: var(--paper-dim);}
+
+  input[type=range]{
+    width:100%;
+    -webkit-appearance:none;
+    height:6px;
+    background: var(--line);
+    border-radius:3px;
+    outline:none;
+    margin: 8px 0 6px;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:22px; height:22px;
+    background: var(--accent, var(--amber));
+    border-radius:50%;
+    cursor:pointer;
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent, var(--amber)) 20%, transparent);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:22px; height:22px;
+    background: var(--accent, var(--amber));
+    border:none;
+    border-radius:50%;
+    cursor:pointer;
+  }
+  .range-labels{
+    display:flex; justify-content:space-between;
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px; color: var(--paper-dim);
+    margin-bottom:16px;
+  }
+
+  .btn-row{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;}
+  button{
+    font-family:'Inter', sans-serif;
+    font-weight:600;
+    font-size:14px;
+    border-radius: var(--radius);
+    border:1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--paper);
+    padding:11px 16px;
+    cursor:pointer;
+    transition: border-color .15s, background .15s;
+  }
+  button:hover{ border-color: var(--amber-dim); }
+  button.danger{ color: var(--stop); }
+  button.danger:hover{ border-color: var(--stop); }
+  button.primary{ background: var(--amber); color:#1c1400; border-color: var(--amber);}
+  button.primary:hover{ filter:brightness(1.08); }
+  button:disabled{ opacity:.4; cursor:not-allowed; }
+  button.icon-x{
+    padding:4px 9px;
+    font-size:14px;
+    line-height:1;
+    color: var(--paper-dim);
+  }
+  button.icon-x:hover{ color: var(--stop); border-color: var(--stop); }
+
+  .section-label{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color: var(--steel);
+    margin: 20px 0 10px;
+    padding-top:16px;
+    border-top:1px dashed var(--line);
+  }
+
+  /* ---------- QUICK-PICK CHIPS (clique em vez de digitar) ---------- */
+  .chips{ display:flex; flex-wrap:wrap; gap:7px; margin-bottom:10px; }
+  .chip{
+    font-family:'Inter', sans-serif;
+    font-size:12.5px;
+    font-weight:600;
+    padding:7px 12px;
+    border-radius:20px;
+    border:1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--paper-dim);
+    cursor:pointer;
+    transition: border-color .15s, color .15s, background .15s;
+    white-space:nowrap;
+  }
+  .chip:hover{ border-color: var(--amber); color: var(--paper); background: rgba(245,166,35,0.08); }
+  .chip.applied{ border-color: var(--up); color: var(--up); }
+
+  /* chip único selecionado (economiza espaço embaixo do evento) */
+  .chip-selected{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    font-size:12.5px;
+    font-weight:600;
+    padding:7px 12px;
+    border-radius:20px;
+    border:1px solid var(--up);
+    background: rgba(95,185,139,0.1);
+    color: var(--up);
+    margin-bottom:10px;
+  }
+  .chip-selected button{
+    border:none;
+    background:none;
+    padding:0;
+    font-size:12px;
+    color: var(--up);
+    opacity:.7;
+    cursor:pointer;
+  }
+  .chip-selected button:hover{ opacity:1; }
+
+  /* ---------- TOGGLES (checkbox estilizado) ---------- */
+  .toggle-row{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    margin-bottom:14px;
+    font-size:13px;
+    color: var(--paper-dim);
+    cursor:pointer;
+    user-select:none;
+  }
+  .toggle-row input[type=checkbox]{
+    width:16px; height:16px;
+    accent-color: var(--amber);
+    cursor:pointer;
+  }
+  .toggle-row .hint{ font-size:11px; color: var(--steel); }
+  .toggle-row.active{ color: var(--paper); }
+
+  .routine-box{
+    background: var(--panel-2);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    padding:12px 14px;
+    margin-bottom:14px;
+  }
+  .routine-list{ margin-top:8px; }
+
+  /* ---------- BOTÃO + POPOVER "RESUMO DIÁRIO" (Linha de pinus) ----------
+     Fica no header, entre o título e o relógio de turno: um botão discreto
+     que abre um painel flutuante com produção/qualidade/pendências. Não
+     entra no relatório em PDF nem soma nada — é só anotação rápida,
+     copiável pro WhatsApp (título em negrito com *asteriscos*). */
+  .pinus-trigger{ position:relative; }
+  .pinus-btn{
+    font-family:'Inter', sans-serif;
+    font-weight:600;
+    font-size:13px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    border-radius: var(--radius);
+    border:1px solid var(--line);
+    background: var(--panel);
+    color: var(--paper-dim);
+    padding:11px 16px;
+    cursor:pointer;
+    transition: border-color .15s, color .15s;
+  }
+  .pinus-btn:hover{ border-color: var(--pine); color: var(--paper); }
+  .pinus-trigger.open .pinus-btn{ border-color: var(--pine); color: var(--paper); }
+  .pinus-dot{
+    width:7px; height:7px; border-radius:50%;
+    background: var(--line);
+    transition: background .15s, box-shadow .15s;
+  }
+  .pinus-dot.filled{ background: var(--pine); box-shadow: 0 0 6px rgba(91,163,116,.7); }
+
+  .pinus-panel{
+    display:none;
+    position:absolute;
+    top: calc(100% + 10px);
+    right:0;
+    width: min(360px, 92vw);
+    background: var(--panel);
+    border:1px solid var(--line);
+    border-top: 2px solid var(--pine);
+    border-radius: var(--radius);
+    box-shadow: 0 18px 40px -14px rgba(0,0,0,0.6);
+    overflow:hidden;
+    z-index:40;
+  }
+  .pinus-trigger.open .pinus-panel{ display:block; }
+  .pinus-head{
+    padding:10px 14px 8px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+  }
+  .pinus-head .card-tag{ color: var(--pine); margin-bottom:1px; font-size:9.5px; }
+  .pinus-head .card-title{ font-size:14.5px; }
+  .pinus-head button{ padding:6px 10px; font-size:12px; }
+  .pinus-body{
+    padding:12px 14px 14px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px 10px;
+  }
+  .pinus-field{ display:flex; flex-direction:column; gap:3px; flex:1 1 140px; min-width:120px; }
+  .pinus-field.wide{ flex-basis:100%; }
+  .pinus-field label{
+    font-family:'JetBrains Mono', monospace;
+    font-size:9.5px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color: var(--steel);
+  }
+  .pinus-field input, .pinus-field textarea{
+    background: var(--panel-2);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--paper);
+    font-family:'Inter', sans-serif;
+    font-size:13.5px;
+    padding:7px 9px;
+  }
+  .pinus-field textarea{ min-height:40px; resize:vertical; }
+  .pinus-field input:focus, .pinus-field textarea:focus{
+    outline:none; border-color: var(--pine);
+  }
+  @media (max-width: 520px){
+    .pinus-panel{ right:auto; left:50%; transform:translateX(-50%); }
+  }
+
+  /* ---------- BARRA DE ROTAS ---------- */
+  .routes-bar{
+    max-width: 1820px;
+    margin: 0 auto;
+    padding: 12px 40px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px 24px;
+    align-items:center;
+    border-bottom: 1px solid var(--line);
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    color: var(--paper-dim);
+  }
+  .routes-bar b{ color: var(--amber); font-weight:600; }
+  .routes-bar .route-item{ display:flex; gap:6px; align-items:center; }
+
+  button.ghost{
+    background: transparent;
+    border:1px solid var(--line);
+    color: var(--paper-dim);
+    font-size:12.5px;
+    padding:8px 12px;
+  }
+  button.ghost:hover{ border-color: var(--amber); color: var(--paper); }
+  button.ghost.copied{ border-color: var(--up); color: var(--up); }
+
+  .entry{
+    display:flex;
+    gap:12px;
+    padding:12px 0;
+    border-bottom:1px solid rgba(255,255,255,0.04);
+    font-size:13.5px;
+  }
+  .entry:last-child{ border-bottom:none; }
+  .entry .time{
+    font-family:'JetBrains Mono', monospace;
+    color: var(--paper-dim);
+    white-space:nowrap;
+    padding-top:3px;
+  }
+  .time-edit{
+    background: var(--panel-2);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--amber);
+    font-size:13px;
+    padding:5px 6px;
+    width:82px;
+  }
+  .time-edit:hover{ border-color: var(--amber-dim); cursor:pointer; }
+  .entry .body{ flex:1; min-width:0; }
+  .entry .change-row{ display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .entry .change{ font-weight:600; }
+  .entry .change.up{ color: var(--up); }
+  .entry .change.down{ color: var(--down); }
+  .entry .change.stop{ color: var(--stop); }
+  .entry .reason{
+    width:100%;
+    margin-top:8px;
+    background: var(--panel-2);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--paper);
+    font-family:'Inter', sans-serif;
+    font-size:14px;
+    padding:9px 11px;
+    min-height:44px;
+    resize:vertical;
+  }
+  .reason::placeholder{ color: var(--paper-dim); }
+  .empty-hint{ font-size:13px; color: var(--paper-dim); font-style:italic; }
+
+  textarea.comment-box{
+    width:100%;
+    background: var(--panel-2);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--paper);
+    font-family:'Inter', sans-serif;
+    font-size:16px;
+    padding:14px 16px;
+    min-height:130px;
+    resize:vertical;
+    margin-bottom:10px;
+  }
+  .comment-item{
+    font-size:13.5px;
+    padding:9px 0;
+    border-bottom:1px solid rgba(255,255,255,0.04);
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:8px;
+  }
+  .comment-item:last-child{ border-bottom:none; }
+  .comment-item .ctext{ flex:1; }
+  .comment-item .time{ font-family:'JetBrains Mono', monospace; color: var(--paper-dim); font-size:11.5px; display:block; margin-bottom:3px;}
+
+  .footer-actions{
+    max-width: 1820px;
+    margin: 34px auto 0;
+    padding: 22px 40px 0;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:12px;
+  }
+  .footer-actions .watermark{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    color: var(--steel);
+    letter-spacing:.06em;
+  }
+  .footer-actions button.primary{ font-size:15px; padding:13px 20px; }
+
+  /* ---------- RELATÓRIO IMPRESSO (limpo, só dados) ----------
+     O tamanho da fonte aqui é só o "ponto de partida" — quando você clica em
+     "Gerar PDF", o JavaScript (função fitReportToOnePage) reduz esse valor
+     automaticamente até o relatório caber numa página só. Para mudar o
+     tamanho do papel ou os limites de fonte, edite as constantes
+     PRINT_PAGE_WIDTH_MM / PRINT_PAGE_HEIGHT_MM / PRINT_FONT_MAX / PRINT_FONT_MIN
+     no bloco de JavaScript mais abaixo (procure por "AJUSTES DO RELATÓRIO"). */
+  /* ★ AJUSTE MANUAL — TAMANHO DO CORPO DO RELATÓRIO ★
+     font-size aqui é o ponto de partida do texto de dados (produção,
+     eventos, observações...). Na hora de gerar o PDF, o JS (fitReportToOnePage)
+     PODE reduzir esse valor automaticamente pra caber numa página — os
+     limites dessa redução ficam em PRINT_FONT_MAX/MIN/STEP, lá embaixo no
+     bloco "AJUSTES DO RELATÓRIO". Se quiser mexer no tamanho "base" do
+     corpo, é este font-size abaixo. */
+  #printArea{
+    font-family: 'Calibri (Corpo)', monospace;
+    color:#000;
+    font-size:10px;
+    line-height:1.4;
+    margin-left: 13mm;
+  }
+  .rep-row{ display:flex; flex-direction:column; gap:12px; }
+  .rep-col{ width:100%; page-break-inside: avoid; margin-top: 28px;}
+  /* ★ AJUSTE MANUAL — TAMANHO DO TÍTULO DE CADA PROCESSO NO RELATÓRIO ★
+     (ex.: "Branqueamento — 21/08/2026 — Das 16h00 às 00h00")
+     Esse font-size está em pt e é FIXO: diferente do corpo acima, ele NÃO
+     é reduzido pelo ajuste automático de página. Se quiser o título maior
+     ou menor, mude só o valor abaixo. */
+  .rep-title{ font-weight:700; font-size:10pt; margin-bottom:4px; }
+  .rep-line{ }
+  .rep-sub{ font-weight:700; margin-top:4px; }
+  .rep-item{ padding-left:0; word-break:break-word; page-break-inside: avoid; }
+  .rep-empty{ color:#555; }
+  .rep-footer{ margin-top:8px; font-size:.8em; color:#777; text-align:right; }
+
+  @media print{
+    /* Tamanho/margem do papel — mantenha estes valores iguais aos das
+       constantes PRINT_PAGE_WIDTH_MM / PRINT_PAGE_HEIGHT_MM / PRINT_MARGIN_MM
+       no bloco de JavaScript, senão a conta de "cabe numa página" fica errada. */
+    @page{ margin: 6mm; size: 210mm 297mm; }
+    body{ background:#fff; color:#000; padding:0; margin:0; }
+    header, .routes-bar, .pinus-trigger, .grid, .footer-actions, .print-watermark{ display:none !important; }
+    #printArea{ display:block !important; position:static !important; left:auto !important; top:auto !important; width:auto !important; width: 100%;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <p class="brand-eyebrow">Registro de Turno · Linha de Branqueamento</p>
+    <h1>Controle de Processos</h1>
+  </div>
+
+  <!-- Botão "Resumo diário": abre um painel (popover) com produção/qualidade/
+       pendências, pensado pra copiar e colar direto no WhatsApp (título em
+       negrito com *asteriscos*). Não entra no relatório em PDF nem soma nada
+       — é só uma anotação rápida. O ponto verde no botão acende quando
+       algum campo estiver preenchido (ver updatePinusBadge no JS). -->
+  <div class="pinus-trigger">
+    <button class="pinus-btn" id="pinusBtn" onclick="togglePinusPanel()">
+      📋 Resumo diário <span class="pinus-dot" id="pinusDot"></span>
+    </button>
+    <div class="pinus-panel" id="pinusPanel">
+      <div class="pinus-head">
+        <div>
+          <span class="card-tag">Resumo diário · copiável</span>
+          <p class="card-title">Linha de pinus</p>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="ghost" onclick="copyPinusCard(this)">📋 Copiar</button>
+          <button class="icon-x" title="Fechar" onclick="togglePinusPanel(false)">✕</button>
+        </div>
+      </div>
+      <div class="pinus-body">
+        <div class="pinus-field">
+          <label>Produção do dia anterior</label>
+          <input type="text" inputmode="decimal" placeholder="ex.: 1300" id="pinus-prodAnterior" oninput="savePinusField('prodAnterior', this.value)">
+        </div>
+        <div class="pinus-field">
+          <label>Produção atual</label>
+          <input type="text" inputmode="decimal" placeholder="ex.: 1320" id="pinus-prodAtual" oninput="savePinusField('prodAtual', this.value)">
+        </div>
+        <div class="pinus-field">
+          <label>Qualidade dia anterior</label>
+          <input type="text" inputmode="decimal" placeholder="ex.: 92" id="pinus-qualAnterior" oninput="savePinusField('qualAnterior', this.value)">
+        </div>
+        <div class="pinus-field">
+          <label>Qualidade atual</label>
+          <input type="text" inputmode="decimal" placeholder="ex.: 94" id="pinus-qualAtual" oninput="savePinusField('qualAtual', this.value)">
+        </div>
+        <div class="pinus-field wide">
+          <label>Pendências</label>
+          <textarea id="pinus-pendencias" oninput="savePinusField('pendencias', this.value)"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="shift-panel">
+    <div class="shift-bars" id="shiftBars">
+      <span data-t="1"></span><span data-t="1"></span><span data-t="1"></span>
+      <span data-t="2"></span><span data-t="2"></span><span data-t="2"></span>
+      <span data-t="3"></span><span data-t="3"></span><span data-t="3"></span>
+    </div>
+    <div class="shift-clock mono" id="clock">--:--</div>
+    <div class="shift-meta">
+      <div><b id="turnoLabel">—</b></div>
+      <div id="dateLabel">—</div>
+    </div>
+  </div>
+</header>
+
+<!-- Rotas do horário: não aparece no relatório, é só para consulta na tela.
+     Edite o objeto ROTAS_HORARIO mais abaixo no código para cadastrar a rota de cada dia/turno. -->
+<div class="routes-bar" id="routesBar"></div>
+
+<main>
+  <div class="grid" id="cardsRoot"></div>
+</main>
+
+<div class="footer-actions">
+  <span class="watermark">.</span>
+  <button class="ghost" onclick="copyFullReport(this)">📋 Copiar relatório completo</button>
+  <button class="primary" onclick="generateReport()">🖨️ Gerar PDF / Imprimir relatório</button>
+</div>
+
+<div id="printArea"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   MAPA RÁPIDO DO QUE VOCÊ PODE EDITAR NESTE ARQUIVO (procure pelo texto):
+   1. "DEFINIÇÃO DOS PROCESSOS"     → nomes, faixa min/max do slider de cada processo
+   2. "QUICK_REASONS"               → motivos de aumento/redução/parada (chips), agora por processo
+   3. "QUICK_NOTES"                 → observações rápidas (chips), agora por processo
+   4. "ROUTINE_ITEMS"               → atividades de rotina por processo
+   5. "ROTAS_HORARIO"               → rota do dia/turno (não entra no relatório)
+   6. "AJUSTES DO RELATÓRIO"        → tamanho de papel/fonte pra caber numa página só
+   7. "STORAGE_KEY"                 → nome usado para salvar no navegador (cache)
+   8. "jcaferreira"                 → assinatura/rodapé do relatório impresso
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ---------------- DEFINIÇÃO DOS PROCESSOS ----------------
+   name = nome completo mostrado no card em tela
+   short = nome curto usado no relatório (cabe mais coisa na página)
+   min/max/step = limites e passo do controle deslizante (slider) de produção */
+const PROCESS_DEFS = {
+  lavagem:       { name:'Lavagem/Delignificação', short:'Lavagem/Deslig.', min:800, max:1600, step:10 },
+  depuracao:     { name:'Depuração',               short:'Depuração',      min:800, max:1600, step:10 },
+  branqueamento: { name:'Branqueamento',            short:'Branqueamento',  min:800, max:1500, step:10 },
+};
+
+/* Motivos de um clique (chips) para aumento/redução/parada — AGORA POR
+   PROCESSO, mesma lógica do ROUTINE_ITEMS: cada chave é o processo, e o
+   valor é a lista de motivos que aparecem só nos ajustes daquele card.
+   Edite/adicione/remova à vontade, um item por linha dentro do array. */
+const QUICK_REASONS = {
+  lavagem: [
+    'Balanço de massa',
+    'Balanço de filtrado',
+    'Kappa alto na entrada da deslig.',
+    'Controle de qualidade',
+  ],
+  depuracao: [
+    'Balanço de massa',
+    'Balanço de filtrado',
+    'Controle de qualidade',
+  ],
+  branqueamento: [
+    'Kappa alto na descarga',
+    'Controle de qualidade',
+    'Balanço de massa',
+  ],
+};
+
+/* Observações rápidas (chips) da seção "Observações" — AGORA POR
+   PROCESSO, mesma lógica do ROUTINE_ITEMS/QUICK_REASONS: cada chave é o
+   processo, e o valor é a lista de observações que aparecem só naquele
+   card. Edite/adicione/remova à vontade, um item por linha. */
+const QUICK_NOTES = {
+  lavagem: [
+    'Processo estável',
+    'Aumentado carga de O2',
+    'Aumentado carga alcalina',
+    'Acionado instrumentação para verificar Kajaane',
+  ],
+  depuracao: [
+    'Processo estável',
+    'Acionado instrumentação para verificar Kajaane',
+  ],
+  branqueamento: [
+    'Processo estável',
+    'Acionado instrumentação para verificar Kajaane',
+    'Aumentado carga de CLO2 no D0',
+    'Aumentado carga de CLO2 no D1',
+    'Aumentado carga de Peróxido no EOP',
+  ],
+};
+
+/* Atividades de ROTINA por processo — cadastre aqui os itens que você quer
+   poder marcar como "realizado" (ex.: calibrações periódicas). Eles só
+   aparecem na tela quando o checkbox "Rotina" do card estiver marcado.
+   Edite/adicione/remova livremente, um item por linha dentro do array. */
+const ROUTINE_ITEMS = {
+  lavagem: [
+    'Realizado calibração no AT5134',
+    'Realizado calibração no AT5144',
+    'Realizado calibração no AT4002',
+    'Realizado calibração no AT4003',
+    'Realizado calibração no AT5060',
+  ],
+  depuracao: [
+    'Realizado calibração no AT5549',
+    'Realizado calibração no AT5512',
+    'Realizado calibração no CIC5325',
+  ],
+  branqueamento: [
+    'Realizado calibração no CIC6109',
+    'Realizado calibração AIC6130',
+    'Realizado calibração AT6181',
+    'Realizado calibração AT6183',
+    'Realizado calibração AT6285',
+    'Realizado calibração AT6340', 
+    'Realizado calibração AT6446',
+    'Realizado calibração AT6346',
+    'Realizado calibração AT6586',
+    'Realizado calibração AT6636',
+    'Realizado calibração AT6648',
+    'Realizado aferição Kajaane',
+  ],
+};
+
+/* ROTAS DO HORÁRIO — não aparece no relatório, é só para consulta na tela.
+   Cada dia (chave AAAA-MM-DD) tem a rota de cada turno (1 = 08h–16h,
+   2 = 16h–00h, 3 = 00h–08h). Cadastre quantos dias quiser; edite os nomes
+   das rotas à vontade. Se um dia não estiver aqui, mostra "não cadastrada". */
+const ROTAS_HORARIO = {
+  '2026-08-20': { 1:'Rota A', 2:'Rota B', 3:'Rota C' },
+  '2026-08-21': { 1:'Rota B', 2:'Rota C', 3:'Rota A' },
+  '2026-08-22': { 1:'Rota C', 2:'Rota A', 3:'Rota B' },
+  // '2026-08-23': { 1:'Rota A', 2:'Rota B', 3:'Rota C' },
+};
+
+/* ---------------- AJUSTES DO RELATÓRIO (PDF / impressão) ----------------
+   O relatório é OBRIGADO a caber numa página só: o texto vai diminuindo de
+   tamanho sozinho (fonte) até caber por inteiro. Se um dia achar as letras
+   pequenas demais, ou quiser mudar o tamanho do papel, mexa só aqui:
+
+   PRINT_PAGE_WIDTH_MM / PRINT_PAGE_HEIGHT_MM → tamanho do papel em mm
+     (297 x 210 = A4 deitado/paisagem, que é o padrão hoje)
+   PRINT_MARGIN_MM   → margem da página em mm (igual dos 4 lados)
+   PRINT_FONT_MAX    → fonte inicial (px) — tenta usar esse tamanho primeiro
+   PRINT_FONT_MIN    → menor fonte permitida (px) — nunca fica menor que isso
+   PRINT_FONT_STEP   → o quanto a fonte diminui a cada tentativa (px)
+
+   Se o conteúdo não couber nem no tamanho mínimo, ele para no mínimo e
+   pronto — não vai cortar nem espalhar em 2ª página, só fica mais apertado.
+   Se isso acontecer com frequência, aumente o papel (ex.: A3 = 420 x 297)
+   ou diminua PRINT_FONT_MIN. */
+const PRINT_PAGE_WIDTH_MM  = 210;   // A4 retrato (vertical)
+const PRINT_PAGE_HEIGHT_MM = 297;
+const PRINT_MARGIN_MM      = 6; 
+const PRINT_FONT_MAX       = 15;    // px — tamanho "ideal" de fonte
+const PRINT_FONT_MIN       = 10;   // px — tamanho mínimo aceitável
+const PRINT_FONT_STEP      = 0.5;   // px — quanto reduz a cada tentativa
+
+const STORAGE_KEY = 'processos-branqueamento-v2'; // nome do "cache" salvo no navegador.
+  // Trocar esse texto faz o sistema esquecer todo o histórico salvo (começa do zero) —
+  // só mude se quiser resetar tudo de propósito.
+
+function emptyDay(prodSeed){
+  return { production: prodSeed, stopped:false, entries:[], comments:[], routines:[] };
+}
+
+function loadState(){
+  let saved = {};
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) saved = JSON.parse(raw);
+  }catch(e){ saved = {}; }
+  const state = {};
+  for(const key in PROCESS_DEFS){
+    state[key] = {
+      days: (saved[key] && saved[key].days) ? saved[key].days : {},
+      routineEnabled: (saved[key] && saved[key].routineEnabled) || false,
+    };
+    // compatibilidade com dias salvos antes da função Rotina existir
+    for(const dk in state[key].days){
+      if(!state[key].days[dk].routines) state[key].days[dk].routines = [];
+    }
+  }
+  // campos do card "Linha de pinus" (resumo diário) — persistem entre sessões
+  state.pinus = saved.pinus || { prodAnterior:'', prodAtual:'', qualAnterior:'', qualAtual:'', pendencias:'' };
+  return state;
+}
+
+let state = loadState();
+
+function saveState(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+/* modo de ajuste silencioso: liga/desliga por processo, não é salvo entre
+   sessões de propósito (evita que fique "preso" ligado sem perceber) */
+const silentMode = {};
+
+/* ---------------- DATA / TURNO ---------------- */
+function dateKey(d){
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function todayKey(){ return dateKey(new Date()); }
+
+function addH(d,h){ return new Date(d.getTime() + h*3600000); }
+
+/* Arredonda um horário para o múltiplo de 5 minutos mais próximo.
+   Ex.: 00:32 -> 00:30 | 00:33 -> 00:35 | 00:37:30 -> 00:40 (regra padrão de arredondamento) */
+function roundToNearest5Min(date){
+  const ms5min = 5 * 60 * 1000;
+  return new Date(Math.round(date.getTime() / ms5min) * ms5min);
+}
+/* Pega a hora atual já arredondada — usar sempre que um evento (ajuste/parada) for criado */
+function nowRounded(){ return roundToNearest5Min(new Date()); }
+
+function getTurno(date){
+  const h = date.getHours();
+  const base = new Date(date); base.setHours(0,0,0,0);
+  if(h >= 8 && h < 16) return {label:'Turno 08h–16h', idx:1, rangeLabel:'Das 08h00 às 16h00', start:addH(base,8), end:addH(base,16)};
+  if(h >= 16 && h < 24) return {label:'Turno 16h–00h', idx:2, rangeLabel:'Das 16h00 às 00h00', start:addH(base,16), end:addH(base,24)};
+  return {label:'Turno 00h–08h', idx:3, rangeLabel:'Das 00h00 às 08h00', start:base, end:addH(base,8)};
+}
+function fmtTime(date){ return date.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}); }
+/* hora só pro RELATÓRIO: "20h00" — h minúsculo, sem dois-pontos */
+function fmtTimeReport(date){
+  const h = String(date.getHours()).padStart(2,'0');
+  const m = String(date.getMinutes()).padStart(2,'0');
+  return `${h}h${m}`;
+}
+function fmtDate(date){ return date.toLocaleDateString('pt-BR', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric'}); }
+function fmtDateShort(key){
+  const [y,m,d] = key.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+/* -------- PARSER DE HORÁRIO DIGITADO (1234 -> 12:34, 930 -> 09:30) -------- */
+function parseTimeInput(str){
+  if(!str) return null;
+  const s = String(str).trim().replace(/[^0-9]/g, '');
+  if(!s.length) return null;
+  let h, m;
+  if(s.length <= 2){ h = Number(s); m = 0; }
+  else if(s.length === 3){ h = Number(s.slice(0,1)); m = Number(s.slice(1)); }
+  else { h = Number(s.slice(0,2)); m = Number(s.slice(2,4)); }
+  if(isNaN(h) || isNaN(m) || h > 23 || m > 59) return null;
+  return { h, m };
+}
+
+/* -------- ROTAS DO HORÁRIO (consulta em tela, não entra no relatório) -------- */
+function renderRoutesBar(){
+  const now = new Date();
+  const tk = dateKey(now);
+  const turno = getTurno(now);
+  const dayRoutes = ROTAS_HORARIO[tk];
+  const rotaAtual = dayRoutes && dayRoutes[turno.idx] ? dayRoutes[turno.idx] : 'não cadastrada';
+  document.getElementById('routesBar').innerHTML = `
+    <div class="route-item">📍 Rota de hoje (${turno.label}): <b>${escapeHtml(rotaAtual)}</b></div>
+  `;
+}
+
+function tickClock(){
+  const now = new Date();
+  document.getElementById('clock').textContent = fmtTime(now);
+  const t = getTurno(now);
+  document.getElementById('turnoLabel').textContent = t.label;
+  document.getElementById('dateLabel').textContent = fmtDate(now);
+  document.querySelectorAll('#shiftBars span').forEach(s=>{
+    s.classList.toggle('on', Number(s.dataset.t) === t.idx);
+  });
+  renderRoutesBar();
+}
+tickClock();
+setInterval(tickClock, 15000);
+
+// gira a chave do dia sozinho à meia-noite, sem precisar de botão.
+// Só redesenha se não houver motivo/observação digitado e ainda não salvo
+// (isDirty) — é isso que evitava o "sumiço" do que você estava digitando.
+setInterval(()=>{ if(!isDirty) renderAll(); }, 60000);
+
+/* pega (ou cria) o "dia" corrente de um processo, herdando a produção do último dia registrado */
+function getDay(key){
+  const proc = state[key];
+  const tk = todayKey();
+  if(!proc.days[tk]){
+    const priorKeys = Object.keys(proc.days).sort();
+    const lastKey = priorKeys[priorKeys.length - 1];
+    const lastProd = lastKey ? proc.days[lastKey].production : 1300;
+    proc.days[tk] = emptyDay(lastProd);
+    saveState();
+  }
+  return proc.days[tk];
+}
+
+/* ---------------- HELPERS ---------------- */
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str || '';
+  return d.innerHTML;
+}
+function escapeAttr(str){
+  return String(str).replace(/'/g, "\\'");
+}
+/* ---------------- RENDER: CARDS DE PRODUÇÃO ---------------- */
+const cardsRoot = document.getElementById('cardsRoot');
+
+function reasonChips(key, id, currentReason){
+  /* já tem motivo selecionado: mostra só ele, economiza espaço.
+     campo de texto abaixo continua editável sem excluir nada. */
+  if(currentReason){
+    return `<div class="chip-selected">${escapeHtml(currentReason)}
+      <button title="Trocar motivo" onclick="clearReasonChip('${key}','${id}')">✕</button>
+    </div>`;
+  }
+  const reasons = QUICK_REASONS[key] || [];
+  return `<div class="chips">${reasons.map((r,i) =>
+    `<span class="chip" onclick="applyQuickReason('${key}','${id}',${i})">${escapeHtml(r)}</span>`).join('') ||
+    '<span class="empty-hint">Nenhum motivo cadastrado — edite QUICK_REASONS no código.</span>'}</div>`;
+}
+
+function entryLine(e, key){
+  const dir = e.type === 'parado' ? 'stop' : (e.to > e.from ? 'up' : 'down');
+  const arrow = e.type === 'parado' ? '⏹ Processo parado' :
+    (e.to > e.from ? `▲ aumento de produção de ${e.from} para ${e.to}` : `▼ redução de produção de ${e.from} para ${e.to}`);
+  const dt = new Date(e.time);
+  return `
+    <div class="entry">
+      <div class="time mono">
+        <input type="text" inputmode="numeric" class="time-edit mono" value="${fmtTime(dt)}" placeholder="HH:MM"
+          onchange="editEntryTime('${key}','${e.id}', this.value)">
+        <br><span style="opacity:.6">${getTurno(dt).label.replace('Turno ','')}</span>
+      </div>
+      <div class="body">
+        <div class="change-row">
+          <div class="change ${dir}">${arrow}${e.silent ? ' <span style="opacity:.6;font-weight:400;">(silencioso)</span>' : ''}</div>
+          <button class="icon-x" title="Excluir" onclick="deleteEntry('${key}','${e.id}')">✕</button>
+        </div>
+        ${reasonChips(key, e.id, e.reason)}
+        <textarea class="reason" placeholder="Motivo (ou clique numa opção acima)"
+          onchange="setReason('${key}','${e.id}', this.value)">${e.reason || ''}</textarea>
+      </div>
+    </div>`;
+}
+
+function routineSection(key){
+  const proc = state[key];
+  const day = getDay(key);
+  const enabled = !!proc.routineEnabled;
+  const items = ROUTINE_ITEMS[key] || [];
+  const recorded = day.routines.slice().reverse().map(r => `
+    <div class="comment-item">
+      <div class="ctext"><span class="time">${fmtTime(new Date(r.time))}</span>Realizado: ${escapeHtml(r.text)}</div>
+      <button class="icon-x" title="Excluir" onclick="removeRoutine('${key}','${r.id}')">✕</button>
+    </div>`).join('');
+
+  return `
+    <label class="toggle-row ${enabled ? 'active' : ''}">
+      <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleRoutine('${key}', this.checked)">
+      Rotina <span class="hint">— marcar atividades de rotina realizadas neste processo</span>
+    </label>
+    ${enabled ? `
+      <div class="routine-box">
+        <div class="chips">${items.map((it,i) =>
+          `<span class="chip" onclick="addRoutine('${key}',${i})">${escapeHtml(it)}</span>`).join('') ||
+          '<span class="empty-hint">Nenhum item cadastrado — edite ROUTINE_ITEMS no código.</span>'}</div>
+        <div class="routine-list">${recorded || '<p class="empty-hint">Nenhuma rotina registrada hoje.</p>'}</div>
+      </div>` : ''}
+  `;
+}
+
+function renderCard(key){
+  const def = PROCESS_DEFS[key];
+  const day = getDay(key);
+  const entriesHtml = day.entries.slice().reverse().map(e => entryLine(e, key)).join('') ||
+    '<p class="empty-hint">Nenhum ajuste registrado hoje.</p>';
+  const commentsHtml = day.comments.slice().reverse().map(c => commentLine(c, key)).join('') ||
+    '<p class="empty-hint">Nenhuma inclusão manual hoje.</p>';
+  const noteChips = (QUICK_NOTES[key] || []).map((n,i) =>
+    `<span class="chip" onclick="addQuickNote('${key}',${i})">${escapeHtml(n)}</span>`).join('');
+  const silentOn = !!silentMode[key];
+
+  return `
+    <div class="card proc-${key}" id="card-${key}">
+      <div class="card-head">
+        <div>
+          <span class="card-tag">Processo</span>
+          <p class="card-title">${def.name}</p>
+        </div>
+        <span class="status-pill ${day.stopped ? 'stopped' : ''}">${day.stopped ? 'PARADO' : 'EM OPERAÇÃO'}</span>
+      </div>
+      <div class="card-body">
+        <div class="prod-readout">
+          <span class="num mono" id="prodnum-${key}">${day.production}</span>
+          <span class="unit">tsa/d — Produção</span>
+        </div>
+        <input type="range" id="slider-${key}" min="${def.min}" max="${def.max}" step="${def.step}" value="${day.production}"
+          oninput="document.getElementById('prodnum-${key}').textContent = this.value"
+          onchange="applyProduction('${key}', this.value)">
+        <div class="range-labels"><span>${def.min}</span><span>${def.max}</span></div>
+
+        <label class="toggle-row ${silentOn ? 'active' : ''}">
+          <input type="checkbox" ${silentOn ? 'checked' : ''} onchange="setSilentMode('${key}', this.checked)">
+          Ajuste silencioso <span class="hint">— não aparece no relatório, fica só salvo</span>
+        </label>
+
+        <div class="btn-row">
+          <button class="danger" onclick="markStopped('${key}')" ${day.stopped ? 'disabled' : ''}>⏹ Marcar processo parado</button>
+          <button onclick="markResume('${key}')" ${day.stopped ? '' : 'disabled'}>▶ Retomar produção</button>
+          <button class="ghost" onclick="copyProcessReport('${key}', this)">📋 Copiar relatório</button>
+        </div>
+
+        <p class="section-label">Aumento / redução — hoje</p>
+        <div id="entries-${key}">${entriesHtml}</div>
+
+        <p class="section-label">Observações — hoje</p>
+        <div class="chips">${noteChips}</div>
+        <textarea class="comment-box" id="commentbox-${key}" placeholder="Escreva uma observação (ou clique numa opção acima)"></textarea>
+        <button onclick="addComment('${key}')">+ Adicionar</button>
+        <div style="margin-top:12px;">${commentsHtml}</div>
+
+        <p class="section-label">Rotina</p>
+        ${routineSection(key)}
+      </div>
+    </div>`;
+}
+
+function commentLine(c, key){
+  const dt = new Date(c.time);
+  return `
+    <div class="comment-item">
+      <div class="ctext">
+        <span class="time">${fmtTime(dt)}</span>
+        ${escapeHtml(c.text)}
+      </div>
+      <button class="icon-x" title="Excluir" onclick="removeComment('${key}','${c.id}')">✕</button>
+    </div>`;
+}
+
+function renderAll(){
+  cardsRoot.innerHTML = Object.keys(PROCESS_DEFS).map(renderCard).join('');
+  renderPrintArea();
+}
+
+/* ---------------- AÇÕES ---------------- */
+function setSilentMode(key, checked){
+  silentMode[key] = checked;
+  // não precisa renderAll: é só um estado de UI para a próxima ação
+}
+
+function applyProduction(key, valueStr){
+  const value = Number(valueStr);
+  const day = getDay(key);
+  const from = day.production;
+  if(value === from && !day.stopped) return;
+  day.entries.push({ id:'e' + Date.now(), time: nowRounded().toISOString(), type:'ajuste', from: day.stopped ? 0 : from, to: value, reason:'', silent: !!silentMode[key] });
+  day.production = value;
+  day.stopped = false;
+  saveState();
+  renderAll();
+}
+
+function markStopped(key){
+  const day = getDay(key);
+  day.entries.push({ id:'e' + Date.now(), time: nowRounded().toISOString(), type:'parado', from: day.production, to: 0, reason:'', silent: !!silentMode[key] });
+  day.stopped = true;
+  saveState();
+  renderAll();
+}
+
+function markResume(key){
+  getDay(key).stopped = false;
+  saveState();
+  renderAll();
+}
+
+function setReason(key, id, value){
+  const entry = getDay(key).entries.find(e => e.id === id);
+  if(entry){ entry.reason = value; saveState(); renderAll(); }
+}
+
+/* clique num chip de motivo: preenche e salva na hora, sem precisar digitar */
+function applyQuickReason(key, id, idx){
+  const reason = (QUICK_REASONS[key] || [])[idx];
+  if(reason) setReason(key, id, reason);
+}
+
+/* "trocar motivo": limpa a seleção pra mostrar os chips de novo (não apaga o evento) */
+function clearReasonChip(key, id){
+  setReason(key, id, '');
+}
+
+/* ---------------- ROTINA ---------------- */
+function toggleRoutine(key, checked){
+  state[key].routineEnabled = checked;
+  saveState();
+  renderAll();
+}
+
+function addRoutine(key, idx){
+  const text = (ROUTINE_ITEMS[key] || [])[idx];
+  if(!text) return;
+  getDay(key).routines.push({ id:'r' + Date.now(), time: new Date().toISOString(), text });
+  saveState();
+  renderAll();
+}
+
+function removeRoutine(key, id){
+  const day = getDay(key);
+  day.routines = day.routines.filter(r => r.id !== id);
+  saveState();
+  renderAll();
+}
+
+/* ---------------- BOTÃO + PAINEL "RESUMO DIÁRIO" (Linha de pinus) ---------------- */
+function initPinusCard(){
+  const p = state.pinus;
+  document.getElementById('pinus-prodAnterior').value = p.prodAnterior || '';
+  document.getElementById('pinus-prodAtual').value = p.prodAtual || '';
+  document.getElementById('pinus-qualAnterior').value = p.qualAnterior || '';
+  document.getElementById('pinus-qualAtual').value = p.qualAtual || '';
+  document.getElementById('pinus-pendencias').value = p.pendencias || '';
+  updatePinusBadge();
+}
+
+/* abre/fecha o painel; chamado sem argumento no botão (alterna) e com
+   `false` no botão de fechar (✕) dentro do painel */
+function togglePinusPanel(force){
+  const trigger = document.querySelector('.pinus-trigger');
+  const shouldOpen = (force === undefined) ? !trigger.classList.contains('open') : force;
+  trigger.classList.toggle('open', shouldOpen);
+}
+
+/* fecha o painel ao clicar fora dele */
+document.addEventListener('click', (ev) => {
+  const trigger = document.querySelector('.pinus-trigger');
+  if(trigger && trigger.classList.contains('open') && !trigger.contains(ev.target)){
+    trigger.classList.remove('open');
+  }
+});
+
+/* pontinho verde no botão: acende se algum campo estiver preenchido */
+function updatePinusBadge(){
+  const p = state.pinus;
+  const filled = !!(p.prodAnterior || p.prodAtual || p.qualAnterior || p.qualAtual || p.pendencias);
+  document.getElementById('pinusDot').classList.toggle('filled', filled);
+}
+
+function savePinusField(field, value){
+  state.pinus[field] = value;
+  saveState();
+  updatePinusBadge();
+}
+
+/* título em *asteriscos* = negrito no WhatsApp.
+   Produção ganha "tsa/d" e Qualidade ganha "%" automaticamente — só se o
+   campo tiver algo e a pessoa ainda não tiver digitado a unidade (evita
+   duplicar tipo "1300 tsa/d tsa/d" se um dia você mesmo escrever a unidade). */
+function withUnit(value, unit){
+  const v = (value || '').trim();
+  if(!v) return '-';
+  if(v.toLowerCase().endsWith(unit.toLowerCase())) return v;
+  return `${v} ${unit}`;
+}
+
+function copyPinusCard(btnEl){
+  const p = state.pinus;
+  const text = [
+    'BRANQUEAMENTO SW',
+    `Produção do dia anterior: ${withUnit(p.prodAnterior, 'tsa/d')}`,
+    `Produção atual: ${withUnit(p.prodAtual, 'tsa/d')}`,
+    `Qualidade dia anterior: ${withUnit(p.qualAnterior, '%')}`,
+    `Qualidade atual: ${withUnit(p.qualAtual, '%')}`,
+    `Pendências: ${p.pendencias || '-'}`,
+  ].join('\n');
+  const done = () => {
+    if(!btnEl) return;
+    const original = btnEl.textContent;
+    btnEl.textContent = '✔ Copiado!';
+    btnEl.classList.add('copied');
+    setTimeout(() => { btnEl.textContent = original; btnEl.classList.remove('copied'); }, 1800);
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+
+function deleteEntry(key, id){
+  const day = getDay(key);
+  day.entries = day.entries.filter(e => e.id !== id);
+  saveState();
+  renderAll();
+}
+
+function editEntryTime(key, id, value){
+  const day = getDay(key);
+  const entry = day.entries.find(e => e.id === id);
+  if(!entry) return;
+  const parsed = parseTimeInput(value);
+  if(!parsed){ renderAll(); return; } // horário inválido: só redesenha e mantém o valor anterior
+  const dt = new Date(entry.time);
+  dt.setHours(parsed.h, parsed.m, 0, 0);
+  entry.time = roundToNearest5Min(dt).toISOString();
+  day.entries.sort((a,b) => new Date(a.time) - new Date(b.time));
+  saveState();
+  renderAll();
+}
+
+function addComment(key){
+  const box = document.getElementById('commentbox-' + key);
+  const text = box.value.trim();
+  if(!text) return;
+  getDay(key).comments.push({ id:'c' + Date.now(), time: new Date().toISOString(), text });
+  saveState();
+  renderAll();
+}
+
+/* clique num chip de observação: adiciona direto, sem digitar nada */
+function addQuickNote(key, idx){
+  const text = (QUICK_NOTES[key] || [])[idx];
+  if(!text) return;
+  getDay(key).comments.push({ id:'c' + Date.now(), time: new Date().toISOString(), text });
+  saveState();
+  renderAll();
+}
+
+function removeComment(key, id){
+  const day = getDay(key);
+  day.comments = day.comments.filter(c => c.id !== id);
+  saveState();
+  renderAll();
+}
+
+/* ---------------- RELATÓRIO (impresso / colar) ----------------
+   Regras: só entra no relatório o que aconteceu dentro do turno atual
+   (calculado no momento em que o relatório é gerado) e o que NÃO foi
+   marcado como "ajuste silencioso". Categoria sem nenhum evento não
+   aparece — só a produção atual é sempre mostrada. */
+function buildProcessReport(key){
+  const def = PROCESS_DEFS[key];
+  const tk = todayKey();
+  const proc = state[key];
+  const day = proc.days[tk];
+  const now = new Date();
+  const turno = getTurno(now);
+  const header = `${def.short} — ${fmtDateShort(tk)} — ${turno.rangeLabel}`;
+
+  if(!day){
+    return { header, lines: [`Produção — tsa/d`] };
+  }
+
+  const inTurno = (t) => t >= turno.start && t < turno.end;
+  const visivel = (e) => !e.silent && inTurno(new Date(e.time));
+
+  const aumentos = day.entries.filter(e => e.type === 'ajuste' && e.to > e.from && visivel(e));
+  const reducoes = day.entries.filter(e => e.type === 'ajuste' && e.to < e.from && visivel(e));
+  const paradas  = day.entries.filter(e => e.type === 'parado' && visivel(e));
+  const comentarios = day.comments.filter(c => inTurno(new Date(c.time)));
+  const rotinas = day.routines.filter(r => inTurno(new Date(r.time)));
+
+  const lines = [];
+  lines.push(`Produção ${day.production} tsa/d`);
+
+  if(aumentos.length){
+    aumentos.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} aumentado produção de ${e.from} para ${e.to}${e.reason ? ' - ' + e.reason : ''}`));
+  }
+  if(reducoes.length){
+    reducoes.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} reduzido produção de ${e.from} para ${e.to}${e.reason ? ' - ' + e.reason : ''}`));
+  }
+  if(paradas.length){
+    lines.push('Parada');
+    paradas.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} parado produção${e.reason ? ' - ' + e.reason : ''}`));
+  }
+  if(rotinas.length){
+    lines.push('Rotina');
+    rotinas.forEach(r => lines.push(`Realizado: ${r.text}`));
+  }
+  // inclusões manuais: sem título e sem hora, só a informação em si
+  comentarios.forEach(c => lines.push(c.text));
+
+  return { header, lines };
+}
+
+/* Versão do relatório para COPIAR (WhatsApp/área de transferência):
+   sem cabeçalho (nome do processo), mas COM hora em cada linha de
+   ajuste/parada (igual ao PDF). Mantém a mesma lógica de "o que entra
+   no relatório" (turno atual, ignora silenciosos). */
+function buildProcessReportForCopy(key){
+  const tk = todayKey();
+  const proc = state[key];
+  const day = proc.days[tk];
+  const now = new Date();
+  const turno = getTurno(now);
+
+  if(!day){
+    return [`Produção — tsa/d`];
+  }
+
+  const inTurno = (t) => t >= turno.start && t < turno.end;
+  const visivel = (e) => !e.silent && inTurno(new Date(e.time));
+
+  const aumentos = day.entries.filter(e => e.type === 'ajuste' && e.to > e.from && visivel(e));
+  const reducoes = day.entries.filter(e => e.type === 'ajuste' && e.to < e.from && visivel(e));
+  const paradas  = day.entries.filter(e => e.type === 'parado' && visivel(e));
+  const comentarios = day.comments.filter(c => inTurno(new Date(c.time)));
+  const rotinas = day.routines.filter(r => inTurno(new Date(r.time)));
+
+  const lines = [];
+  lines.push(`Produção ${day.production} tsa/d`);
+
+  if(aumentos.length){
+    aumentos.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} aumentado produção de ${e.from} para ${e.to}${e.reason ? ' - ' + e.reason : ''}`));
+  }
+  if(reducoes.length){
+    reducoes.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} reduzido produção de ${e.from} para ${e.to}${e.reason ? ' - ' + e.reason : ''}`));
+  }
+  if(paradas.length){
+    lines.push('Parada');
+    paradas.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} parado produção${e.reason ? ' - ' + e.reason : ''}`));
+  }
+  if(rotinas.length){
+    lines.push('Rotina');
+    rotinas.forEach(r => lines.push(`Realizado: ${r.text}`));
+  }
+  comentarios.forEach(c => lines.push(c.text));
+
+  return lines;
+}
+
+function generateReport(){
+  renderPrintArea();
+  fitReportToOnePage();   // encolhe a fonte automaticamente até caber numa página só
+  window.print();
+}
+
+function renderPrintArea(){
+  const area = document.getElementById('printArea');
+  let cols = '';
+  for(const key in PROCESS_DEFS){
+    const { header, lines } = buildProcessReport(key);
+    cols += `<div class="rep-col">
+      <div class="rep-title">${escapeHtml(header)}</div>
+      ${lines.map(l => `<div class="rep-item">${escapeHtml(l)}</div>`).join('')}
+    </div>`;
+  }
+  // "jcaferreira" = assinatura/rodapé impressa no relatório — troque o texto se quiser.
+  area.innerHTML = `<div class="rep-row">${cols}</div><div class="rep-footer">.</div>`;
+}
+
+/* Converte milímetros para pixels (96dpi é o padrão de tela/impressão do navegador) */
+function mmToPx(mm){ return mm * 96 / 25.4; }
+
+/* Garante que o relatório caiba numa única página: mede a altura do
+   conteúdo fora da tela (sem o usuário ver) e vai reduzindo a fonte, um
+   passo de cada vez, até caber na altura útil do papel (ou até bater no
+   tamanho mínimo definido em PRINT_FONT_MIN lá em cima). */
+function fitReportToOnePage(){
+  const area = document.getElementById('printArea');
+  const pageW = mmToPx(PRINT_PAGE_WIDTH_MM - PRINT_MARGIN_MM * 2);
+  const pageH = mmToPx(PRINT_PAGE_HEIGHT_MM - PRINT_MARGIN_MM * 2);
+
+  // mede "fora da tela" (position fixed + left negativo), sem piscar pro usuário
+  area.style.display = 'block';
+  area.style.position = 'fixed';
+  area.style.left = '-99999px';
+  area.style.top = '0';
+  area.style.width = pageW + 'px';
+
+  let fontSize = PRINT_FONT_MAX;
+  area.style.fontSize = fontSize + 'px';
+  const maxTries = Math.ceil((PRINT_FONT_MAX - PRINT_FONT_MIN) / PRINT_FONT_STEP) + 1;
+  for(let tries = 0; area.scrollHeight > pageH && fontSize > PRINT_FONT_MIN && tries < maxTries; tries++){
+    fontSize = Math.max(PRINT_FONT_MIN, fontSize - PRINT_FONT_STEP);
+    area.style.fontSize = fontSize + 'px';
+  }
+
+  // desfaz o posicionamento de medição; o CSS de @media print cuida de
+  // exibir certinho na hora de imprimir de verdade
+  area.style.position = '';
+  area.style.left = '';
+  area.style.top = '';
+  area.style.width = '';
+  area.style.display = '';
+}
+
+/* ---------------- COPIAR PARA ÁREA DE TRANSFERÊNCIA ----------------
+   Usa buildProcessReportForCopy (sem nome do processo, sem hora) — o
+   nome do processo e a hora de cada evento só aparecem no PDF. */
+/* junta os 3 processos num texto só, separados por linha em branco */
+function buildFullReportText(){
+  const parts = [];
+  for(const key in PROCESS_DEFS){
+    const lines = buildProcessReportForCopy(key);
+    parts.push(lines.join('\n'));
+  }
+  return parts.join('\n\n');
+}
+
+function copyFullReport(btnEl){
+  const text = buildFullReportText();
+  const done = () => {
+    if(!btnEl) return;
+    const original = btnEl.textContent;
+    btnEl.textContent = '✔ Copiado!';
+    btnEl.classList.add('copied');
+    setTimeout(() => { btnEl.textContent = original; btnEl.classList.remove('copied'); }, 1800);
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+
+function copyProcessReport(key, btnEl){
+  const lines = buildProcessReportForCopy(key);
+  const text = lines.join('\n');
+  const done = () => {
+    if(!btnEl) return;
+    const original = btnEl.textContent;
+    btnEl.textContent = '✔ Copiado!';
+    btnEl.classList.add('copied');
+    setTimeout(() => { btnEl.textContent = original; btnEl.classList.remove('copied'); }, 1800);
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+function fallbackCopy(text, done){
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try{ document.execCommand('copy'); done(); }catch(e){}
+  document.body.removeChild(ta);
+}
+
+/* ---------------- PROTEÇÃO CONTRA SAÍDA SEM SALVAR ---------------- */
+let isDirty = false;
+document.addEventListener('input', (ev) => {
+  if(ev.target.classList.contains('reason') || ev.target.classList.contains('comment-box')){
+    isDirty = true;
+  }
+});
+document.addEventListener('change', (ev) => {
+  if(ev.target.classList.contains('reason')){
+    isDirty = false;
+  }
+});
+const _saveState = saveState;
+saveState = function(){
+  _saveState();
+  isDirty = false;
+};
+window.addEventListener('beforeunload', (e) => {
+  if(!isDirty) return;
+  e.preventDefault();
+  e.returnValue = 'Você tem um motivo ou comentário digitado que ainda não foi salvo. Sair mesmo assim?';
+  return e.returnValue;
+});
+
+renderAll();
+initPinusCard();
+</script>
+</body>
+</html>
