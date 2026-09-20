@@ -4,8 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Controle de Processos — Branqueamento Pinus</title>
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#14181d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Processos">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <style>
   :root{
     --graphite: #14181d;
@@ -394,6 +405,97 @@
     .pinus-panel{ right:auto; left:50%; transform:translateX(-50%); }
   }
 
+  /* ---------- ENGRENAGEM + CONFIGURAÇÕES (sincronização) ----------
+     O botão fica no header, ao lado do relógio de turno. O pontinho no
+     canto mostra o estado da sinc: cinza = não conectado, verde = ok,
+     âmbar = sincronizando/sem internet, vermelho = erro. */
+  [hidden]{ display:none !important; }
+  .header-right{ display:flex; align-items:stretch; gap:12px; }
+  .gear-btn{
+    position:relative;
+    width:48px;
+    padding:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background: var(--panel);
+    color: var(--paper-dim);
+  }
+  .gear-btn:hover{ color: var(--paper); border-color: var(--amber-dim); }
+  .gear-btn svg{ width:20px; height:20px; }
+  .gear-dot{
+    position:absolute; top:8px; right:8px;
+    width:9px; height:9px; border-radius:50%;
+    background: var(--steel);
+    box-shadow: 0 0 0 2px var(--panel);
+  }
+  .gear-dot[data-s="ok"]{ background: var(--up); }
+  .gear-dot[data-s="busy"]{ background: var(--amber); }
+  .gear-dot[data-s="error"]{ background: var(--stop); }
+
+  .modal-overlay{
+    position:fixed; inset:0;
+    background: rgba(0,0,0,0.62);
+    display:flex; align-items:center; justify-content:center;
+    padding:20px;
+    z-index:100;
+  }
+  .modal{
+    background: var(--panel);
+    border:1px solid var(--line);
+    border-top:3px solid var(--amber);
+    border-radius: var(--radius);
+    width:100%; max-width:440px;
+    max-height:90vh; overflow:auto;
+    padding:20px 22px 22px;
+    box-shadow: 0 24px 60px -16px rgba(0,0,0,0.7);
+  }
+  .modal-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:10px; }
+  .modal-head .card-tag{ color: var(--amber); }
+  .modal h2{ margin:0; font-size:19px; font-weight:700; }
+  .modal-hint{ margin:0 0 14px; font-size:13px; line-height:1.5; color: var(--paper-dim); }
+  .sync-status{
+    display:flex; align-items:center; gap:9px;
+    background: var(--panel-2);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    padding:10px 12px;
+    margin-bottom:16px;
+    font-size:13px; color: var(--paper-dim);
+  }
+  .sync-dot{ width:9px; height:9px; border-radius:50%; background: var(--steel); flex:none; }
+  .sync-dot[data-s="ok"]{ background: var(--up); }
+  .sync-dot[data-s="busy"]{ background: var(--amber); }
+  .sync-dot[data-s="error"]{ background: var(--stop); }
+  .modal-field{ display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
+  .modal-field label{
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+    color: var(--steel);
+  }
+  .modal-field input{
+    background: var(--panel-2);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--paper);
+    font-family:'Inter', sans-serif;
+    font-size:15px;
+    padding:10px 12px;
+    width:100%;
+  }
+  .modal-field input:focus{ outline:none; border-color: var(--amber); }
+  .modal-pass{ position:relative; }
+  .modal-pass input{ padding-right:74px; }
+  .modal-pass button{
+    position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    padding:5px 9px; font-size:12px; font-weight:500;
+    background:transparent; border-color:transparent; color: var(--paper-dim);
+  }
+  .modal-error{ color: var(--stop); font-size:13px; min-height:18px; margin:0 0 8px; }
+  .modal-actions{ display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; }
+  .modal-logged{ margin:0 0 14px; font-size:14px; color: var(--paper-dim); }
+  .modal-logged b{ color: var(--paper); font-weight:600; word-break:break-all; }
+
   /* ---------- BARRA DE ROTAS ---------- */
   .routes-bar{
     max-width: 1820px;
@@ -552,7 +654,7 @@
        no bloco de JavaScript, senão a conta de "cabe numa página" fica errada. */
     @page{ margin: 6mm; size: 210mm 297mm; }
     body{ background:#fff; color:#000; padding:0; margin:0; }
-    header, .routes-bar, .pinus-trigger, .grid, .footer-actions, .print-watermark{ display:none !important; }
+    header, .routes-bar, .pinus-trigger, .grid, .footer-actions, .print-watermark, .modal-overlay{ display:none !important; }
     #printArea{ display:block !important; position:static !important; left:auto !important; top:auto !important; width:auto !important; width: 100%;}
   }
 </style>
@@ -610,6 +712,7 @@
     </div>
   </div>
 
+  <div class="header-right">
   <div class="shift-panel">
     <div class="shift-bars" id="shiftBars">
       <span data-t="1"></span><span data-t="1"></span><span data-t="1"></span>
@@ -621,6 +724,14 @@
       <div><b id="turnoLabel">—</b></div>
       <div id="dateLabel">—</div>
     </div>
+  </div>
+  <button class="gear-btn" id="gearBtn" title="Configurações e sincronização" aria-label="Configurações e sincronização" onclick="openSettings()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+    </svg>
+    <span class="gear-dot" id="gearDot" data-s="off"></span>
+  </button>
   </div>
 </header>
 
@@ -636,6 +747,50 @@
   <span class="watermark">.</span>
   <button class="ghost" onclick="copyFullReport(this)">📋 Copiar relatório completo</button>
   <button class="primary" onclick="generateReport()">🖨️ Gerar PDF / Imprimir relatório</button>
+</div>
+
+<!-- Configurações: sincronização entre aparelhos (Firebase). Abre pela engrenagem do header. -->
+<div class="modal-overlay" id="modalOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <div>
+        <span class="card-tag">Configurações</span>
+        <h2 id="modalTitle">Sincronização</h2>
+      </div>
+      <button class="icon-x" title="Fechar" onclick="attemptCloseSettings()">✕</button>
+    </div>
+    <p class="modal-hint">Entre com o mesmo e-mail e senha em todos os aparelhos para manter os registros iguais. Sem entrar, tudo continua funcionando e fica salvo só neste aparelho.</p>
+
+    <div class="sync-status"><span class="sync-dot" id="syncDot" data-s="off"></span><span id="syncText">Não conectado</span></div>
+
+    <div id="authLoggedOutBox">
+      <div class="modal-field">
+        <label for="authEmail">E-mail</label>
+        <input type="email" id="authEmail" placeholder="operador@empresa.com" autocomplete="username" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="modal-field">
+        <label for="authPassword">Senha</label>
+        <div class="modal-pass">
+          <input type="password" id="authPassword" placeholder="mínimo 6 caracteres" autocomplete="current-password">
+          <button type="button" id="authShowBtn" onclick="toggleAuthPassword()">Mostrar</button>
+        </div>
+      </div>
+      <div class="modal-error" id="authError"></div>
+      <div class="modal-actions">
+        <button onclick="authSignup()">Criar conta</button>
+        <button class="primary" onclick="authLogin()">Entrar</button>
+      </div>
+    </div>
+
+    <div id="authLoggedInBox" hidden>
+      <p class="modal-logged">Conectado como <b id="authEmailDisplay"></b></p>
+      <div class="modal-error" id="syncError"></div>
+      <div class="modal-actions">
+        <button class="danger" onclick="authLogout()">Sair</button>
+        <button class="primary" onclick="syncNow(true)">Sincronizar agora</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="printArea"></div>
@@ -782,7 +937,7 @@ const STORAGE_KEY = 'processos-branqueamento-v2'; // nome do "cache" salvo no na
   // só mude se quiser resetar tudo de propósito.
 
 function emptyDay(prodSeed){
-  return { production: prodSeed, stopped:false, entries:[], comments:[], routines:[] };
+  return { production: prodSeed, stopped:false, entries:[], comments:[], routines:[], updatedAt:0 };
 }
 
 function loadState(){
@@ -803,14 +958,320 @@ function loadState(){
     }
   }
   // campos do card "Linha de pinus" (resumo diário) — persistem entre sessões
-  state.pinus = saved.pinus || { prodAnterior:'', prodAtual:'', qualAnterior:'', qualAtual:'', pendencias:'' };
+  state.pinus = saved.pinus || { prodAnterior:'', prodAtual:'', qualAnterior:'', qualAtual:'', pendencias:'', updatedAt:0 };
   return state;
 }
 
 let state = loadState();
 
 function saveState(){
+  stampChangedDays();   // carimba só os dias que realmente mudaram (usado pela sincronização)
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  scheduleCloudPush();  // envia para a nuvem em segundo plano (se estiver conectado)
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SINCRONIZAÇÃO — Firebase (Firestore + login por e-mail/senha)
+   Mesmo projeto Firebase e mesmo padrão do app "Relatório Fibras":
+   • O localStorage continua sendo a fonte da verdade (nunca depende de
+     rede nem de login). A nuvem é uma camada por cima, em segundo plano.
+   • A mesclagem é POR DIA de cada processo: cada dia tem um "updatedAt" e
+     só é substituído se o da nuvem for mais novo — nunca troca tudo de uma vez.
+   • Só os últimos SYNC_DAYS dias vão para a nuvem (o documento do Firestore
+     tem limite de 1 MB); o histórico completo continua neste aparelho.
+   • Configuração do Firebase: edite UMA VEZ, aqui, antes de subir pro GitHub.
+   ════════════════════════════════════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey: "AIzaSyBYzJbfkNU_LG7w7hZyWs1WZ-M38FDuVks",
+  authDomain: "relatoriofibras.firebaseapp.com",
+  projectId: "relatoriofibras",
+  storageBucket: "relatoriofibras.firebasestorage.app",
+  messagingSenderId: "746323043382",
+  appId: "1:746323043382:web:8a08554898c05aaa8da497"
+};
+const SYNC_COLLECTION = 'relatorioFibrasBranqueada'; // mesma coleção do outro app (as Regras já liberam)
+const SYNC_DOC_ID     = 'controleProcessos';         // documento próprio deste app
+const SYNC_DAYS       = 7;                            // quantos dias recentes vão para a nuvem
+
+var syncAuth = null, syncDocRef = null, syncUser = null, syncUnsub = null;
+var cloudReady = false;      // true depois da 1ª busca/mescla — antes disso nada é enviado
+var needsPush = false, pushTimer = null, lastPushedAt = 0;
+var pendingRemoteRender = false;
+var daySnap = {};            // 'processo|data' -> JSON do dia (sem updatedAt): detecta o que mudou de verdade
+
+function recentDayKeys(n){
+  const out = [];
+  for(let i = 0; i < n; i++) out.push(dateKey(new Date(Date.now() - i * 86400000)));
+  return out;
+}
+function dayWeight(d){
+  return ((d.entries || []).length) + ((d.comments || []).length) + ((d.routines || []).length);
+}
+function dayJson(d){
+  const c = Object.assign({}, d);
+  delete c.updatedAt;
+  return JSON.stringify(c);
+}
+
+/* Registra o conteúdo atual dos dias recentes como ponto de partida — chamada
+   uma vez ao abrir o app, antes de qualquer edição. */
+function initDaySnapshots(){
+  recentDayKeys(SYNC_DAYS).forEach(dk => {
+    for(const key in PROCESS_DEFS){
+      const d = state[key].days[dk];
+      if(!d) continue;
+      daySnap[key + '|' + dk] = dayJson(d);
+      if(d.updatedAt === undefined) d.updatedAt = 0;
+    }
+  });
+}
+
+/* Carimba com a hora atual só os dias que MUDARAM de fato desde a última
+   vez (comparando o conteúdo). Dia recém-criado vazio fica com updatedAt 0,
+   então nunca sobrescreve um dia real que veio de outro aparelho. */
+function stampChangedDays(){
+  const keys = recentDayKeys(SYNC_DAYS);
+  for(const key in PROCESS_DEFS){
+    const days = state[key].days;
+    keys.forEach(dk => {
+      const d = days[dk];
+      if(!d) return;
+      const id = key + '|' + dk;
+      const j = dayJson(d);
+      if(daySnap[id] === undefined){
+        daySnap[id] = j;
+        if(d.updatedAt === undefined) d.updatedAt = 0;
+        return;
+      }
+      if(daySnap[id] !== j){ daySnap[id] = j; d.updatedAt = Date.now(); }
+    });
+  }
+}
+
+/* ---------- status na tela (engrenagem + painel) ---------- */
+function setSyncStatus(kind, err){
+  const map = {
+    off:     ['off',   'Não conectado — os dados ficam só neste aparelho'],
+    nolib:   ['off',   'Firebase não carregou (sem internet?) — os dados ficam só neste aparelho'],
+    ok:      ['ok',    'Sincronizado'],
+    busy:    ['busy',  'Sincronizando…'],
+    offline: ['busy',  'Sem conexão — salvo neste aparelho, envia ao reconectar'],
+    error:   ['error', 'Erro ao sincronizar' + (err ? ' — ' + (err.message || err) : '')]
+  };
+  const [dotState, text] = map[kind] || map.off;
+  ['gearDot','syncDot'].forEach(id => { const el = document.getElementById(id); if(el) el.dataset.s = dotState; });
+  const t = document.getElementById('syncText'); if(t) t.textContent = text;
+  const e = document.getElementById('syncError');
+  if(e) e.textContent = (kind === 'error' && err && err.code === 'permission-denied')
+    ? 'As Regras do Firestore não permitem gravar neste documento (coleção ' + SYNC_COLLECTION + ', documento ' + SYNC_DOC_ID + ').' : '';
+}
+
+/* ---------- mesclagem: nuvem → aparelho, dia a dia ---------- */
+function mergeRemote(remote){
+  let changedDays = false, changedPinus = false;
+  const rdays = remote.days || {};
+  for(const key in PROCESS_DEFS){
+    const rp = rdays[key];
+    if(!rp) continue;
+    for(const dk in rp){
+      const rd = rp[dk];
+      if(!rd) continue;
+      const ld = state[key].days[dk];
+      const rt = rd.updatedAt || 0, lt = ld ? (ld.updatedAt || 0) : 0;
+      if(!ld || rt > lt || (rt === lt && dayWeight(rd) > dayWeight(ld))){
+        rd.entries  = rd.entries  || [];
+        rd.comments = rd.comments || [];
+        rd.routines = rd.routines || [];
+        state[key].days[dk] = rd;
+        daySnap[key + '|' + dk] = dayJson(rd);   // veio da nuvem: não conta como edição local
+        changedDays = true;
+      }
+    }
+  }
+  const rpin = remote.pinus;
+  if(rpin && (rpin.updatedAt || 0) > (state.pinus.updatedAt || 0)){
+    state.pinus = rpin;
+    changedPinus = true;
+  }
+  if(changedDays || changedPinus){
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
+    if(changedDays) renderRemote();
+    if(changedPinus) initPinusCard();
+  }
+}
+
+/* Redesenha os cards depois de uma mudança vinda da nuvem — mas sem apagar
+   o que a pessoa está digitando ou arrastando: se houver foco num campo dos
+   cards, espera ela terminar. */
+function isTypingInCards(){
+  const a = document.activeElement;
+  return !!(a && cardsRoot.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+}
+function renderRemote(){
+  if(isTypingInCards() || isDirty){ pendingRemoteRender = true; return; }
+  renderAll();
+}
+document.addEventListener('focusout', () => {
+  if(!pendingRemoteRender) return;
+  setTimeout(() => {
+    if(!pendingRemoteRender || isTypingInCards() || isDirty) return;
+    renderAll();
+  }, 250);
+});
+
+/* ---------- envio: aparelho → nuvem ---------- */
+function buildPayload(){
+  const keys = recentDayKeys(SYNC_DAYS);
+  const days = {};
+  for(const key in PROCESS_DEFS){
+    days[key] = {};
+    keys.forEach(dk => { const d = state[key].days[dk]; if(d) days[key][dk] = d; });
+  }
+  // JSON puro: o Firestore recusa valores "undefined"
+  return JSON.parse(JSON.stringify({ days, pinus: state.pinus, pushedAt: lastPushedAt }));
+}
+function pushToCloudNow(){
+  clearTimeout(pushTimer); pushTimer = null;
+  if(!syncUser || !syncDocRef) return;
+  if(!cloudReady){ needsPush = true; return; }
+  if(!navigator.onLine){ needsPush = true; setSyncStatus('offline'); return; }
+  lastPushedAt = Date.now();
+  needsPush = false;
+  setSyncStatus('busy');
+  syncDocRef.set(buildPayload(), { merge: true })
+    .then(() => setSyncStatus('ok'))
+    .catch(err => { needsPush = true; setSyncStatus('error', err); });
+}
+function scheduleCloudPush(){
+  if(!syncUser || !syncDocRef) return;
+  if(!cloudReady){ needsPush = true; return; }
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushToCloudNow, 700);
+}
+/* rede de segurança: se ficou envio pendente e a pessoa troca de aba/fecha, manda na hora */
+function flushPendingPush(){ if(pushTimer) pushToCloudNow(); }
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') flushPendingPush(); });
+window.addEventListener('pagehide', flushPendingPush);
+
+/* Busca a nuvem uma vez, mescla por dia e depois envia o que é mais novo daqui. */
+function syncNow(){
+  if(!syncUser || !syncDocRef) return Promise.resolve();
+  if(!navigator.onLine){ setSyncStatus('offline'); return Promise.resolve(); }
+  setSyncStatus('busy');
+  return syncDocRef.get().then(snap => {
+    if(snap.exists) mergeRemote(snap.data());
+    cloudReady = true;
+    pushToCloudNow();
+    setSyncStatus('ok');
+  }).catch(err => setSyncStatus('error', err));
+}
+
+window.addEventListener('online',  () => { if(syncUser) syncNow(); });
+window.addEventListener('offline', () => { if(syncUser) setSyncStatus('offline'); });
+
+function initSync(){
+  if(typeof firebase === 'undefined'){ setSyncStatus('nolib'); return; }
+  try{
+    firebase.initializeApp(firebaseConfig);
+    syncAuth = firebase.auth();
+    syncDocRef = firebase.firestore().collection(SYNC_COLLECTION).doc(SYNC_DOC_ID);
+    setSyncStatus('off');
+    syncAuth.onAuthStateChanged(user => {
+      syncUser = user;
+      cloudReady = false;
+      const out = document.getElementById('authLoggedOutBox'), inn = document.getElementById('authLoggedInBox');
+      if(user){
+        document.getElementById('authEmailDisplay').textContent = user.email;
+        out.hidden = true; inn.hidden = false;
+        syncNow();
+        if(!syncUnsub){
+          syncUnsub = syncDocRef.onSnapshot(snap => {
+            if(!snap.exists || !cloudReady) return;              // a 1ª mescla é feita pelo syncNow()
+            const remote = snap.data();
+            if(remote.pushedAt && remote.pushedAt === lastPushedAt) return; // eco do nosso próprio envio
+            mergeRemote(remote);
+            setSyncStatus('ok');
+          }, err => setSyncStatus('error', err));
+        }
+      } else {
+        out.hidden = false; inn.hidden = true;
+        if(syncUnsub){ syncUnsub(); syncUnsub = null; }
+        setSyncStatus('off');
+      }
+    });
+  } catch(err){
+    setSyncStatus('error', err);
+  }
+}
+
+/* ---------- painel da engrenagem ---------- */
+const settingsOverlay = document.getElementById('modalOverlay');
+
+function openSettings(){
+  document.getElementById('authError').textContent = '';
+  document.getElementById('authPassword').value = '';
+  document.getElementById('authPassword').type = 'password';
+  document.getElementById('authShowBtn').textContent = 'Mostrar';
+  if(syncUser) document.getElementById('authEmailDisplay').textContent = syncUser.email;
+  settingsOverlay.hidden = false;
+}
+function closeSettings(){ settingsOverlay.hidden = true; }
+function hasTypedAuthData(){
+  if(document.getElementById('authLoggedOutBox').hidden) return false;
+  return document.getElementById('authEmail').value.trim() !== '' || document.getElementById('authPassword').value !== '';
+}
+function attemptCloseSettings(){
+  if(hasTypedAuthData() && !window.confirm('Você digitou e-mail/senha mas ainda não entrou.\n\nSe fechar agora, isso será perdido. Fechar mesmo assim?')) return;
+  closeSettings();
+}
+settingsOverlay.addEventListener('click', ev => { if(ev.target === settingsOverlay) attemptCloseSettings(); });
+document.addEventListener('keydown', ev => {
+  if(settingsOverlay.hidden) return;
+  if(ev.key === 'Escape') attemptCloseSettings();
+  if(ev.key === 'Enter' && ev.target && ev.target.id === 'authPassword') authLogin();
+});
+function toggleAuthPassword(){
+  const inp = document.getElementById('authPassword');
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  document.getElementById('authShowBtn').textContent = show ? 'Ocultar' : 'Mostrar';
+}
+
+function traduzErroAuth(err){
+  const map = {
+    'auth/invalid-email': 'E-mail inválido.',
+    'auth/user-not-found': 'Usuário não encontrado — crie uma conta.',
+    'auth/wrong-password': 'Senha incorreta.',
+    'auth/email-already-in-use': 'Esse e-mail já tem conta — use "Entrar".',
+    'auth/weak-password': 'Senha muito curta (mínimo 6 caracteres).',
+    'auth/invalid-credential': 'E-mail ou senha incorretos.',
+    'auth/network-request-failed': 'Sem conexão com a internet.',
+    'auth/too-many-requests': 'Muitas tentativas. Espere um pouco e tente de novo.'
+  };
+  return map[err.code] || err.message;
+}
+function authCredentials(){
+  return { email: document.getElementById('authEmail').value.trim(), pass: document.getElementById('authPassword').value };
+}
+function authLogin(){
+  if(!syncAuth){ document.getElementById('authError').textContent = 'Firebase indisponível — verifique a internet e reabra o app.'; return; }
+  const { email, pass } = authCredentials();
+  document.getElementById('authError').textContent = '';
+  syncAuth.signInWithEmailAndPassword(email, pass)
+    .then(closeSettings)
+    .catch(err => document.getElementById('authError').textContent = traduzErroAuth(err));
+}
+function authSignup(){
+  if(!syncAuth){ document.getElementById('authError').textContent = 'Firebase indisponível — verifique a internet e reabra o app.'; return; }
+  const { email, pass } = authCredentials();
+  document.getElementById('authError').textContent = '';
+  syncAuth.createUserWithEmailAndPassword(email, pass)
+    .then(closeSettings)
+    .catch(err => document.getElementById('authError').textContent = traduzErroAuth(err));
+}
+function authLogout(){
+  if(!syncAuth) return;
+  syncAuth.signOut().then(closeSettings);
 }
 
 /* modo de ajuste silencioso: liga/desliga por processo, não é salvo entre
@@ -1058,6 +1519,7 @@ function commentLine(c, key){
 }
 
 function renderAll(){
+  pendingRemoteRender = false;
   cardsRoot.innerHTML = Object.keys(PROCESS_DEFS).map(renderCard).join('');
   renderPrintArea();
 }
@@ -1135,11 +1597,12 @@ function removeRoutine(key, id){
 /* ---------------- BOTÃO + PAINEL "RESUMO DIÁRIO" (Linha de pinus) ---------------- */
 function initPinusCard(){
   const p = state.pinus;
-  document.getElementById('pinus-prodAnterior').value = p.prodAnterior || '';
-  document.getElementById('pinus-prodAtual').value = p.prodAtual || '';
-  document.getElementById('pinus-qualAnterior').value = p.qualAnterior || '';
-  document.getElementById('pinus-qualAtual').value = p.qualAtual || '';
-  document.getElementById('pinus-pendencias').value = p.pendencias || '';
+  const set = (id, v) => { const el = document.getElementById(id); if(el && document.activeElement !== el) el.value = v || ''; };
+  set('pinus-prodAnterior', p.prodAnterior);
+  set('pinus-prodAtual', p.prodAtual);
+  set('pinus-qualAnterior', p.qualAnterior);
+  set('pinus-qualAtual', p.qualAtual);
+  set('pinus-pendencias', p.pendencias);
   updatePinusBadge();
 }
 
@@ -1168,6 +1631,7 @@ function updatePinusBadge(){
 
 function savePinusField(field, value){
   state.pinus[field] = value;
+  state.pinus.updatedAt = Date.now();
   saveState();
   updatePinusBadge();
 }
@@ -1485,8 +1949,14 @@ window.addEventListener('beforeunload', (e) => {
   return e.returnValue;
 });
 
+initDaySnapshots();
 renderAll();
 initPinusCard();
+initSync();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
 </script>
 </body>
 </html>
