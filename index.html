@@ -595,23 +595,27 @@
   .comment-item .ctext{ flex:1; }
   .comment-item .time{ font-family:'JetBrains Mono', monospace; color: var(--paper-dim); font-size:11.5px; display:block; margin-bottom:3px;}
 
-  .footer-actions{
-    max-width: 1820px;
-    margin: 34px auto 0;
-    padding: 22px 40px 0;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    flex-wrap:wrap;
-    gap:12px;
-  }
-  .footer-actions .watermark{
-    font-family:'JetBrains Mono', monospace;
-    font-size:11px;
-    color: var(--steel);
-    letter-spacing:.06em;
-  }
-  .footer-actions button.primary{ font-size:15px; padding:13px 20px; }
+  
+.footer-actions{
+  max-width: 1820px;
+  margin: 34px auto 0;
+  padding: 22px 40px 0;
+
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap:24px;
+  align-items:center;
+}
+
+.footer-actions .watermark{
+  display:none;}
+
+.footer-actions button{
+  width:auto;
+  min-width:260px;
+  justify-self:center;
+}
+}
 
   /* ---------- RELATÓRIO IMPRESSO (limpo, só dados) ----------
      O tamanho da fonte aqui é só o "ponto de partida" — quando você clica em
@@ -745,6 +749,7 @@
 
 <div class="footer-actions">
   <span class="watermark">.</span>
+  <button class="ghost danger" onclick="clearInclusions()">🧹 Limpar observações e rotinas</button>
   <button class="ghost" onclick="copyFullReport(this)">📋 Copiar relatório completo</button>
   <button class="primary" onclick="generateReport()">🖨️ Gerar PDF / Imprimir relatório</button>
 </div>
@@ -951,10 +956,12 @@ function loadState(){
     state[key] = {
       days: (saved[key] && saved[key].days) ? saved[key].days : {},
       routineEnabled: (saved[key] && saved[key].routineEnabled) || false,
+      notesEnabled: (saved[key] && saved[key].notesEnabled) || false,   // caixinha das observações (padrão: recolhida)
     };
     // compatibilidade com dias salvos antes da função Rotina existir
     for(const dk in state[key].days){
       if(!state[key].days[dk].routines) state[key].days[dk].routines = [];
+      sortDayByTime(state[key].days[dk]);   // dias salvos antes: garante a ordem por horário
     }
   }
   // campos do card "Linha de pinus" (resumo diário) — persistem entre sessões
@@ -1082,6 +1089,7 @@ function mergeRemote(remote){
         rd.entries  = rd.entries  || [];
         rd.comments = rd.comments || [];
         rd.routines = rd.routines || [];
+        sortDayByTime(rd);
         state[key].days[dk] = rd;
         daySnap[key + '|' + dk] = dayJson(rd);   // veio da nuvem: não conta como edição local
         changedDays = true;
@@ -1296,6 +1304,44 @@ function roundToNearest5Min(date){
 /* Pega a hora atual já arredondada — usar sempre que um evento (ajuste/parada) for criado */
 function nowRounded(){ return roundToNearest5Min(new Date()); }
 
+/* ---------------- CRONOLOGIA ----------------
+   Tudo que tem hora (ajustes/paradas, observações, rotinas) é SEMPRE mantido
+   e exibido em ordem de horário, não importa a ordem em que foi incluído.
+   (sort estável: eventos no mesmo horário mantêm a ordem em que entraram) */
+function byTime(a, b){ return new Date(a.time) - new Date(b.time); }
+function sortByTime(list){ return (list || []).slice().sort(byTime); }
+function sortDayByTime(day){
+  ['entries','comments','routines'].forEach(k => { if(Array.isArray(day[k])) day[k].sort(byTime); });
+}
+
+/* texto da rotina: os itens já começam com "Realizado ..." — só acrescenta o
+   prefixo se o item não tiver (evita "Realizado: Realizado calibração") */
+function rotinaTexto(t){
+  const x = String(t || '').trim();
+  return /^realizad[oa]\b/i.test(x) ? x : `Realizado: ${x}`;
+}
+
+/* valor de produção com a unidade ao lado: 1400 -> "1400 tsa/d" */
+function fmtTsa(v){ return `${v} tsa/d`; }
+
+/* Refaz a sequência "de X para Y" seguindo a ordem cronológica: o "para" de
+   cada evento é o que vale; o "de" passa a ser o "para" do evento anterior
+   (ou a produção com que o dia começou, day.startProd). Devolve a produção e
+   o estado (parado ou não) depois do último evento. */
+function rebuildChain(day){
+  if(day.startProd === undefined) return null;
+  let prod = day.startProd, stopped = false;
+  day.entries.forEach(e => {
+    if(e.type === 'parado'){ e.from = prod; e.to = 0; stopped = true; }
+    else {
+      // "de 0" = voltou direto pelo slider com o processo parado
+      e.from = (stopped && e.from === 0) ? 0 : prod;
+      prod = e.to; stopped = false;
+    }
+  });
+  return { prod, stopped };
+}
+
 function getTurno(date){
   const h = date.getHours();
   const base = new Date(date); base.setHours(0,0,0,0);
@@ -1371,6 +1417,7 @@ function getDay(key){
     proc.days[tk] = emptyDay(lastProd);
     saveState();
   }
+  sortDayByTime(proc.days[tk]);
   return proc.days[tk];
 }
 
@@ -1403,7 +1450,7 @@ function reasonChips(key, id, currentReason){
 function entryLine(e, key){
   const dir = e.type === 'parado' ? 'stop' : (e.to > e.from ? 'up' : 'down');
   const arrow = e.type === 'parado' ? '⏹ Processo parado' :
-    (e.to > e.from ? `▲ aumento de produção de ${e.from} para ${e.to}` : `▼ redução de produção de ${e.from} para ${e.to}`);
+    (e.to > e.from ? `▲ aumento de produção de ${fmtTsa(e.from)} para ${fmtTsa(e.to)}` : `▼ redução de produção de ${fmtTsa(e.from)} para ${fmtTsa(e.to)}`);
   const dt = new Date(e.time);
   return `
     <div class="entry">
@@ -1431,7 +1478,7 @@ function routineSection(key){
   const items = ROUTINE_ITEMS[key] || [];
   const recorded = day.routines.slice().reverse().map(r => `
     <div class="comment-item">
-      <div class="ctext"><span class="time">${fmtTime(new Date(r.time))}</span>Realizado: ${escapeHtml(r.text)}</div>
+      <div class="ctext"><span class="time">${fmtTime(new Date(r.time))}</span>${escapeHtml(rotinaTexto(r.text))}</div>
       <button class="icon-x" title="Excluir" onclick="removeRoutine('${key}','${r.id}')">✕</button>
     </div>`).join('');
 
@@ -1460,6 +1507,7 @@ function renderCard(key){
   const noteChips = (QUICK_NOTES[key] || []).map((n,i) =>
     `<span class="chip" onclick="addQuickNote('${key}',${i})">${escapeHtml(n)}</span>`).join('');
   const silentOn = !!silentMode[key];
+  const notesOn = !!state[key].notesEnabled;
 
   return `
     <div class="card proc-${key}" id="card-${key}">
@@ -1495,9 +1543,16 @@ function renderCard(key){
         <div id="entries-${key}">${entriesHtml}</div>
 
         <p class="section-label">Observações — hoje</p>
-        <div class="chips">${noteChips}</div>
-        <textarea class="comment-box" id="commentbox-${key}" placeholder="Escreva uma observação (ou clique numa opção acima)"></textarea>
-        <button onclick="addComment('${key}')">+ Adicionar</button>
+        <label class="toggle-row ${notesOn ? 'active' : ''}">
+          <input type="checkbox" ${notesOn ? 'checked' : ''} onchange="toggleNotes('${key}', this.checked)">
+          Observações <span class="hint">— marcar para incluir observações neste processo</span>
+        </label>
+        ${notesOn ? `
+          <div class="routine-box">
+            <div class="chips">${noteChips}</div>
+            <textarea class="comment-box" id="commentbox-${key}" placeholder="Escreva uma observação (ou clique numa opção acima)"></textarea>
+            <button onclick="addComment('${key}')">+ Adicionar</button>
+          </div>` : ''}
         <div style="margin-top:12px;">${commentsHtml}</div>
 
         <p class="section-label">Rotina</p>
@@ -1535,6 +1590,7 @@ function applyProduction(key, valueStr){
   const day = getDay(key);
   const from = day.production;
   if(value === from && !day.stopped) return;
+  if(day.startProd === undefined && !day.entries.length) day.startProd = day.production;
   day.entries.push({ id:'e' + Date.now(), time: nowRounded().toISOString(), type:'ajuste', from: day.stopped ? 0 : from, to: value, reason:'', silent: !!silentMode[key] });
   day.production = value;
   day.stopped = false;
@@ -1544,6 +1600,7 @@ function applyProduction(key, valueStr){
 
 function markStopped(key){
   const day = getDay(key);
+  if(day.startProd === undefined && !day.entries.length) day.startProd = day.production;
   day.entries.push({ id:'e' + Date.now(), time: nowRounded().toISOString(), type:'parado', from: day.production, to: 0, reason:'', silent: !!silentMode[key] });
   day.stopped = true;
   saveState();
@@ -1684,16 +1741,33 @@ function editEntryTime(key, id, value){
   if(!entry) return;
   const parsed = parseTimeInput(value);
   if(!parsed){ renderAll(); return; } // horário inválido: só redesenha e mantém o valor anterior
+  // dia salvo antes desta versão: a produção inicial é o "de" do primeiro evento
+  if(day.startProd === undefined && day.entries.length) day.startProd = day.entries[0].from;
+  const lastBefore = day.entries[day.entries.length - 1];
   const dt = new Date(entry.time);
   dt.setHours(parsed.h, parsed.m, 0, 0);
   entry.time = roundToNearest5Min(dt).toISOString();
-  day.entries.sort((a,b) => new Date(a.time) - new Date(b.time));
+  sortDayByTime(day);
+  // refaz os "de X para Y" na nova ordem e alinha a produção atual ao último evento do dia
+  const res = rebuildChain(day);
+  if(res){
+    day.production = res.prod;
+    if(day.entries[day.entries.length - 1] !== lastBefore) day.stopped = res.stopped;
+  }
+  saveState();
+  renderAll();
+}
+
+/* caixinha das observações: recolhida por padrão; marcada, mostra as opções e o campo de texto */
+function toggleNotes(key, checked){
+  state[key].notesEnabled = checked;
   saveState();
   renderAll();
 }
 
 function addComment(key){
   const box = document.getElementById('commentbox-' + key);
+  if(!box) return;
   const text = box.value.trim();
   if(!text) return;
   getDay(key).comments.push({ id:'c' + Date.now(), time: new Date().toISOString(), text });
@@ -1706,6 +1780,19 @@ function addQuickNote(key, idx){
   const text = (QUICK_NOTES[key] || [])[idx];
   if(!text) return;
   getDay(key).comments.push({ id:'c' + Date.now(), time: new Date().toISOString(), text });
+  saveState();
+  renderAll();
+}
+
+/* Limpa as observações e rotinas de hoje nos 3 processos. Produção, aumentos,
+   reduções e paradas ficam (são contínuos). Na virada do dia isso já acontece
+   sozinho: o dia novo começa sem observações/rotinas e herda só a produção. */
+function clearInclusions(){
+  let total = 0;
+  for(const key in PROCESS_DEFS){ const d = getDay(key); total += d.comments.length + d.routines.length; }
+  if(!total){ window.alert('Não há observações nem rotinas para limpar.'); return; }
+  if(!window.confirm('Limpar todas as observações e rotinas de hoje (nos 3 processos)?\n\nA produção e os aumentos/reduções continuam.')) return;
+  for(const key in PROCESS_DEFS){ const d = getDay(key); d.comments = []; d.routines = []; }
   saveState();
   renderAll();
 }
@@ -1738,31 +1825,33 @@ function buildProcessReport(key){
   const inTurno = (t) => t >= turno.start && t < turno.end;
   const visivel = (e) => !e.silent && inTurno(new Date(e.time));
 
-  const aumentos = day.entries.filter(e => e.type === 'ajuste' && e.to > e.from && visivel(e));
-  const reducoes = day.entries.filter(e => e.type === 'ajuste' && e.to < e.from && visivel(e));
-  const paradas  = day.entries.filter(e => e.type === 'parado' && visivel(e));
-  const comentarios = day.comments.filter(c => inTurno(new Date(c.time)));
-  const rotinas = day.routines.filter(r => inTurno(new Date(r.time)));
+  const aumentos = sortByTime(day.entries).filter(e => e.type === 'ajuste' && e.to > e.from && visivel(e));
+  const reducoes = sortByTime(day.entries).filter(e => e.type === 'ajuste' && e.to < e.from && visivel(e));
+  const paradas  = sortByTime(day.entries).filter(e => e.type === 'parado' && visivel(e));
+  const comentarios = sortByTime(day.comments).filter(c => inTurno(new Date(c.time)));
+  const rotinas = sortByTime(day.routines).filter(r => inTurno(new Date(r.time)));
 
   const lines = [];
   lines.push(`Produção ${day.production} tsa/d`);
 
   if(aumentos.length){
-    aumentos.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} aumentado produção de ${e.from} para ${e.to}${e.reason ? ' - ' + e.reason : ''}`));
+    aumentos.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} aumentado produção de ${fmtTsa(e.from)} para ${fmtTsa(e.to)}${e.reason ? ' - ' + e.reason : ''}`));
   }
   if(reducoes.length){
-    reducoes.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} reduzido produção de ${e.from} para ${e.to}${e.reason ? ' - ' + e.reason : ''}`));
+    reducoes.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} reduzido produção de ${fmtTsa(e.from)} para ${fmtTsa(e.to)}${e.reason ? ' - ' + e.reason : ''}`));
   }
   if(paradas.length){
     lines.push('Parada');
     paradas.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} parado produção${e.reason ? ' - ' + e.reason : ''}`));
   }
-  if(rotinas.length){
-    lines.push('Rotina');
-    rotinas.forEach(r => lines.push(`Realizado: ${r.text}`));
-  }
-  // inclusões manuais: sem título e sem hora, só a informação em si
+  // observações (selecionadas e digitadas): sem título e sem hora, logo abaixo dos ajustes
   comentarios.forEach(c => lines.push(c.text));
+  // Rotina sempre por último, separada por uma linha em branco; entre os itens, sem espaço
+  if(rotinas.length){
+    lines.push('');
+    lines.push('Rotina');
+    rotinas.forEach(r => lines.push(rotinaTexto(r.text)));
+  }
 
   return { header, lines };
 }
@@ -1785,30 +1874,31 @@ function buildProcessReportForCopy(key){
   const inTurno = (t) => t >= turno.start && t < turno.end;
   const visivel = (e) => !e.silent && inTurno(new Date(e.time));
 
-  const aumentos = day.entries.filter(e => e.type === 'ajuste' && e.to > e.from && visivel(e));
-  const reducoes = day.entries.filter(e => e.type === 'ajuste' && e.to < e.from && visivel(e));
-  const paradas  = day.entries.filter(e => e.type === 'parado' && visivel(e));
-  const comentarios = day.comments.filter(c => inTurno(new Date(c.time)));
-  const rotinas = day.routines.filter(r => inTurno(new Date(r.time)));
+  const aumentos = sortByTime(day.entries).filter(e => e.type === 'ajuste' && e.to > e.from && visivel(e));
+  const reducoes = sortByTime(day.entries).filter(e => e.type === 'ajuste' && e.to < e.from && visivel(e));
+  const paradas  = sortByTime(day.entries).filter(e => e.type === 'parado' && visivel(e));
+  const comentarios = sortByTime(day.comments).filter(c => inTurno(new Date(c.time)));
+  const rotinas = sortByTime(day.routines).filter(r => inTurno(new Date(r.time)));
 
   const lines = [];
   lines.push(`Produção ${day.production} tsa/d`);
 
   if(aumentos.length){
-    aumentos.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} aumentado produção de ${e.from} para ${e.to}${e.reason ? ' - ' + e.reason : ''}`));
+    aumentos.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} aumentado produção de ${fmtTsa(e.from)} para ${fmtTsa(e.to)}${e.reason ? ' - ' + e.reason : ''}`));
   }
   if(reducoes.length){
-    reducoes.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} reduzido produção de ${e.from} para ${e.to}${e.reason ? ' - ' + e.reason : ''}`));
+    reducoes.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} reduzido produção de ${fmtTsa(e.from)} para ${fmtTsa(e.to)}${e.reason ? ' - ' + e.reason : ''}`));
   }
   if(paradas.length){
     lines.push('Parada');
     paradas.forEach(e => lines.push(`${fmtTimeReport(new Date(e.time))} parado produção${e.reason ? ' - ' + e.reason : ''}`));
   }
-  if(rotinas.length){
-    lines.push('Rotina');
-    rotinas.forEach(r => lines.push(`Realizado: ${r.text}`));
-  }
   comentarios.forEach(c => lines.push(c.text));
+  if(rotinas.length){
+    lines.push('');
+    lines.push('Rotina');
+    rotinas.forEach(r => lines.push(rotinaTexto(r.text)));
+  }
 
   return lines;
 }
@@ -1826,7 +1916,7 @@ function renderPrintArea(){
     const { header, lines } = buildProcessReport(key);
     cols += `<div class="rep-col">
       <div class="rep-title">${escapeHtml(header)}</div>
-      ${lines.map(l => `<div class="rep-item">${escapeHtml(l)}</div>`).join('')}
+      ${lines.map(l => l === '' ? `<div class="rep-item rep-gap">&nbsp;</div>` : `<div class="rep-item">${escapeHtml(l)}</div>`).join('')}
     </div>`;
   }
   // "jcaferreira" = assinatura/rodapé impressa no relatório — troque o texto se quiser.
@@ -1877,7 +1967,8 @@ function buildFullReportText(){
   const parts = [];
   for(const key in PROCESS_DEFS){
     const lines = buildProcessReportForCopy(key);
-    parts.push(lines.join('\n'));
+    // só no relatório completo: nome do processo antes dos dados (a cópia individual não muda)
+    parts.push([PROCESS_DEFS[key].name, ...lines].join('\n'));
   }
   return parts.join('\n\n');
 }
